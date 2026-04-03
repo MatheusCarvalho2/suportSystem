@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,132 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum OrganizationType {
+  OPERATOR
+  CLIENT
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Organization {
+  id        String           @id @default(uuid())
+  name      String
+  type      OrganizationType
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  users     User[]
+}
+
+model User {
+  id               String             @id @default(uuid())
+  name             String
+  email            String             @unique
+  passwordHash     String
+  role             UserRole           @default(MEMBER)
+  organizationId   String
+  organization     Organization       @relation(fields: [organizationId], references: [id])
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  createdTickets   Ticket[]           @relation("TicketCreator")
+  assignments      TicketAssignment[]
+  portalLinks      PortalAssignment[]
+  notifications    Notification[]
+}
+
+model Portal {
+  id          String             @id @default(uuid())
+  name        String
+  description String?
+  url         String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  tickets     Ticket[]
+  devLinks    PortalAssignment[]
+}
+
+model PortalAssignment {
+  id        String   @id @default(uuid())
+  portalId  String
+  portal    Portal   @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([portalId, userId])
+}
+
+model Ticket {
+  id                String             @id @default(uuid())
+  title             String
+  description       String
+  status            TicketStatus       @default(OPEN)
+  priority          TicketPriority     @default(MEDIUM)
+  portalId          String
+  portal            Portal             @relation(fields: [portalId], references: [id])
+  createdById       String
+  createdBy         User               @relation("TicketCreator", fields: [createdById], references: [id])
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  clientId          String?
+  meEpp             String?
+  conlicitacaoNumber String?
+  editalNumber      String?
+  buyerOrgan        String?
+  disputeDate       String?
+  disputeTime       String?
+  judgmentCriteria   String?
+  videoLink         String?
+  occurrence        String?
+
+  resolutionCause   String?
+  impactedArea      String?
+  actionTaken       String?
+  resolutionStatus  String?
+  resolvedAt        DateTime?
+
+  assignments       TicketAssignment[]
+  notifications     Notification[]
+}
+
+model TicketAssignment {
+  id         String   @id @default(uuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([ticketId, userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticketId  String?
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 }

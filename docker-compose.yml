@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: suport_postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: suport
+      POSTGRES_PASSWORD: suport123
+      POSTGRES_DB: support_system
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:7
+    container_name: suport_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+
+  soketi:
+    image: quay.io/soketi/soketi:1.6-16-debian
+    container_name: suport_soketi
+    restart: unless-stopped
+    ports:
+      - "6001:6001"
+      - "9601:9601"
+    environment:
+      SOKETI_DEBUG: "1"
+      SOKETI_DEFAULT_APP_ID: "suport-app"
+      SOKETI_DEFAULT_APP_KEY: "suport-key"
+      SOKETI_DEFAULT_APP_SECRET: "suport-secret"
+
+volumes:
+  pgdata:
+  mongodata:
