@@ -16,8 +16,9 @@ services:
     image: mongo:7
     container_name: suport_mongo
     restart: unless-stopped
+    # Host 27018 → evita conflito com MongoDB local ou outro serviço na 27017
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
       - mongodata:/data/db
 
