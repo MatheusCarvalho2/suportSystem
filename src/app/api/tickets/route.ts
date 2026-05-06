@@ -12,6 +12,13 @@ const createTicketSchema = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
 });
 
+function prismaErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "code" in error) {
+    return String((error as { code: unknown }).code);
+  }
+  return undefined;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -139,31 +146,67 @@ export async function POST(req: Request) {
     const body = await req.json();
     const data = createTicketSchema.parse(body);
 
-    const ticket = await prisma.ticket.create({
-      data: {
-        title: data.title,
-        description: data.description,
-        portalId: data.portalId,
-        priority: data.priority || "MEDIUM",
-        createdById: session.user.id,
-      },
-      include: {
-        portal: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, name: true, email: true } },
-        assignments: {
-          include: { user: { select: { id: true, name: true } } },
+    let ticket;
+    try {
+      ticket = await prisma.ticket.create({
+        data: {
+          title: data.title,
+          description: data.description,
+          portalId: data.portalId,
+          priority: data.priority || "MEDIUM",
+          createdById: session.user.id,
         },
-      },
-    });
+        include: {
+          portal: { select: { id: true, name: true } },
+          createdBy: { select: { id: true, name: true, email: true } },
+          assignments: {
+            include: { user: { select: { id: true, name: true } } },
+          },
+        },
+      });
+    } catch (createErr) {
+      const code = prismaErrorCode(createErr);
+      console.error("POST /api/tickets prisma.ticket.create:", createErr);
+      if (code === "P2003") {
+        return NextResponse.json(
+          {
+            error:
+              "portalId não existe neste banco ou usuário inválido. Confira se a produção usa o mesmo Postgres que local e se as migrações/seeds foram aplicadas.",
+          },
+          { status: 400 }
+        );
+      }
+      throw createErr;
+    }
 
-    await connectMongoDB();
-    await Message.create({
-      ticketId: ticket.id,
-      senderId: session.user.id,
-      senderName: session.user.name,
-      content: `Ticket criado: ${ticket.title}`,
-      type: "system",
-    });
+    const senderDisplay =
+      session.user.name?.trim() || session.user.email?.trim() || "Usuário";
+
+    try {
+      await connectMongoDB();
+      await Message.create({
+        ticketId: ticket.id,
+        senderId: session.user.id,
+        senderName: senderDisplay,
+        content: `Ticket criado: ${ticket.title}`,
+        type: "system",
+      });
+    } catch (mongoErr) {
+      console.error(
+        "POST /api/tickets MongoDB (após criar ticket; fazendo rollback):",
+        mongoErr
+      );
+      await prisma.ticket.delete({ where: { id: ticket.id } }).catch((delErr) => {
+        console.error("POST /api/tickets rollback ticket falhou:", delErr);
+      });
+      return NextResponse.json(
+        {
+          error:
+            "MongoDB indisponível ao registrar a conversa do ticket. Na Vercel não use mongodb://localhost; use Atlas (ou outro host público) e libere Network Access para 0.0.0.0/0 ou IPs da Vercel.",
+        },
+        { status: 503 }
+      );
+    }
 
     const portalDevs = await prisma.portalAssignment.findMany({
       where: { portalId: data.portalId },

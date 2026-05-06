@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Message } from "@/lib/mongoose-models";
-import { triggerPusher } from "@/lib/pusher-server";
+import { emitTicketSocketEvent } from "@/lib/socket-realtime";
 
 export async function GET(
   req: NextRequest,
@@ -90,11 +90,7 @@ export async function POST(
       createdAt: message.createdAt.toISOString(),
     };
 
-    await triggerPusher(
-      `private-ticket-${ticketId}`,
-      "new-message",
-      messageData
-    );
+    emitTicketSocketEvent(ticketId, "new-message", messageData);
 
     if (session.user.organizationType === "OPERATOR" && type === "text") {
       const existingAssignments = await prisma.ticketAssignment.findMany({
@@ -124,11 +120,7 @@ export async function POST(
           createdAt: systemMsg.createdAt.toISOString(),
         };
 
-        await triggerPusher(
-          `private-ticket-${ticketId}`,
-          "new-message",
-          systemData
-        );
+        emitTicketSocketEvent(ticketId, "new-message", systemData);
 
         await prisma.notification.deleteMany({
           where: {

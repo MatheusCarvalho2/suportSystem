@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { connectMongoDB } from "@/lib/mongodb";
 import { ChatSeen } from "@/lib/mongoose-models";
-import { triggerPusher } from "@/lib/pusher-server";
+import { emitTicketSocketEvent } from "@/lib/socket-realtime";
 
 export async function GET(
   _req: Request,
@@ -58,7 +58,7 @@ export async function PUT(
       { upsert: true, new: true }
     );
 
-    await triggerPusher(`private-ticket-${ticketId}`, "message-seen", {
+    emitTicketSocketEvent(ticketId, "message-seen", {
       userId: session.user.id,
       userName: session.user.name,
       lastSeenAt: now.toISOString(),

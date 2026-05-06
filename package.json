@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "npx tsx server.ts",
     "build": "prisma generate && next build",
-    "start": "next start",
+    "start": "cross-env NODE_ENV=production npx tsx server.ts",
     "lint": "eslint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -32,6 +32,8 @@
     "prisma": "^7.6.0",
     "pusher": "^5.3.3",
     "pusher-js": "^8.5.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "shadcn": "^4.1.2",
@@ -42,6 +44,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",

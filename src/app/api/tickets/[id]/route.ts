@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod/v4";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Message } from "@/lib/mongoose-models";
-import { triggerPusher } from "@/lib/pusher-server";
+import { emitTicketSocketEvent } from "@/lib/socket-realtime";
 
 const updateTicketSchema = z.object({
   status: z.enum(["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"]).optional(),
@@ -156,7 +156,7 @@ export async function PATCH(
       });
     }
 
-    await triggerPusher(`private-ticket-${id}`, "ticket-updated", ticket);
+    emitTicketSocketEvent(id, "ticket-updated", ticket);
 
     return NextResponse.json(ticket);
   } catch (error) {

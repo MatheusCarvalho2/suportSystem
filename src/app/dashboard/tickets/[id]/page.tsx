@@ -40,7 +40,12 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useSessionUser } from "@/hooks/useSessionUser";
-import { getPusherClient } from "@/lib/pusher-client";
+import {
+  createTicketSocket,
+  fetchSocketToken,
+  joinTicketRoom,
+} from "@/lib/ticket-socket-client";
+import type { Socket } from "socket.io-client";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import Link from "next/link";
 
@@ -118,16 +123,33 @@ export default function TicketDetailPage({
   }, [fetchTicket]);
 
   useEffect(() => {
-    const pusher = getPusherClient();
-    if (!pusher) return;
+    let cancelled = false;
+    let socket: Socket | undefined;
 
-    const channel = pusher.subscribe(`private-ticket-${id}`);
-    channel.bind("ticket-updated", (data: TicketDetail) => {
-      setTicket(data);
-    });
+    void (async () => {
+      const token = await fetchSocketToken();
+      if (cancelled || !token) return;
+
+      const s = createTicketSocket(token);
+      socket = s;
+
+      s.on("ticket-updated", (data: TicketDetail) => {
+        setTicket(data);
+      });
+
+      const enterRoom = () => {
+        joinTicketRoom(s, id).catch(() => {});
+      };
+
+      s.on("connect", enterRoom);
+      if (s.connected) enterRoom();
+    })();
+
     return () => {
-      channel.unbind_all();
-      pusher.unsubscribe(`private-ticket-${id}`);
+      cancelled = true;
+      socket?.emit("leave-ticket", id);
+      socket?.removeAllListeners();
+      socket?.close();
     };
   }, [id]);
 

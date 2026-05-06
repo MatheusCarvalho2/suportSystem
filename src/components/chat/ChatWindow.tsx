@@ -5,7 +5,12 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, MessageSquare } from "lucide-react";
 import { useSessionUser } from "@/hooks/useSessionUser";
-import { getPusherClient } from "@/lib/pusher-client";
+import {
+  createTicketSocket,
+  fetchSocketToken,
+  joinTicketRoom,
+} from "@/lib/ticket-socket-client";
+import type { Socket } from "socket.io-client";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
 import type { ChatMessage } from "@/types";
@@ -96,35 +101,55 @@ export function ChatWindow({ ticketId, createdById }: ChatWindowProps) {
   }, [loading, messages, markAsSeen]);
 
   useEffect(() => {
-    const pusher = getPusherClient();
-    if (!pusher) return;
+    let cancelled = false;
+    let socket: Socket | undefined;
 
-    const channel = pusher.subscribe(`private-ticket-${ticketId}`);
+    void (async () => {
+      const token = await fetchSocketToken();
+      if (cancelled || !token) return;
 
-    channel.bind("new-message", (data: ChatMessage) => {
-      setMessages((prev) => {
-        if (prev.some((m) => m._id === data._id)) return prev;
-        return [...prev, data];
+      const s = createTicketSocket(token);
+      socket = s;
+
+      s.on("new-message", (data: ChatMessage) => {
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === data._id)) return prev;
+          return [...prev, data];
+        });
+        setTimeout(
+          () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
+          100
+        );
+        markAsSeen();
       });
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-      markAsSeen();
-    });
 
-    channel.bind("message-seen", (data: SeenEntry) => {
-      setSeenBy((prev) => {
-        const idx = prev.findIndex((s) => s.userId === data.userId);
-        if (idx !== -1) {
-          const updated = [...prev];
-          updated[idx] = data;
-          return updated;
-        }
-        return [...prev, data];
+      s.on("message-seen", (data: SeenEntry) => {
+        setSeenBy((prev) => {
+          const idx = prev.findIndex((x) => x.userId === data.userId);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = data;
+            return updated;
+          }
+          return [...prev, data];
+        });
       });
-    });
+
+      const enterRoom = () => {
+        joinTicketRoom(s, ticketId).catch(() => {});
+      };
+
+      s.on("connect", enterRoom);
+      if (s.connected) enterRoom();
+    })();
 
     return () => {
-      channel.unbind_all();
-      pusher.unsubscribe(`private-ticket-${ticketId}`);
+      cancelled = true;
+      if (socket) {
+        socket.emit("leave-ticket", ticketId);
+        socket.removeAllListeners();
+        socket.close();
+      }
     };
   }, [ticketId, markAsSeen]);
 
@@ -133,12 +158,19 @@ export function ChatWindow({ ticketId, createdById }: ChatWindowProps) {
     setSending(true);
 
     try {
-      await fetch(`/api/tickets/${ticketId}/messages`, {
+      const res = await fetch(`/api/tickets/${ticketId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      if (res.ok) {
+        const data = (await res.json()) as ChatMessage;
+        setMessages((prev) =>
+          prev.some((m) => m._id === data._id) ? prev : [...prev, data]
+        );
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+        markAsSeen();
+      }
     } catch {
       // silently fail
     } finally {

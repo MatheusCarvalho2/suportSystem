@@ -18,7 +18,9 @@ export async function GET() {
       };
     }
 
-    const [
+    // Uma transação sequencial evita várias sessões em paralelo no pooler Supabase
+    // (erro "MaxClientsInSessionMode: max clients reached").
+    const {
       totalTickets,
       openTickets,
       inProgressTickets,
@@ -26,13 +28,22 @@ export async function GET() {
       closedTickets,
       recentTickets,
       portalStats,
-    ] = await Promise.all([
-      prisma.ticket.count({ where: ticketWhere }),
-      prisma.ticket.count({ where: { ...ticketWhere, status: "OPEN" } }),
-      prisma.ticket.count({ where: { ...ticketWhere, status: "IN_PROGRESS" } }),
-      prisma.ticket.count({ where: { ...ticketWhere, status: "RESOLVED" } }),
-      prisma.ticket.count({ where: { ...ticketWhere, status: "CLOSED" } }),
-      prisma.ticket.findMany({
+      userPortalIds,
+    } = await prisma.$transaction(async (tx) => {
+      const totalTickets = await tx.ticket.count({ where: ticketWhere });
+      const openTickets = await tx.ticket.count({
+        where: { ...ticketWhere, status: "OPEN" },
+      });
+      const inProgressTickets = await tx.ticket.count({
+        where: { ...ticketWhere, status: "IN_PROGRESS" },
+      });
+      const resolvedTickets = await tx.ticket.count({
+        where: { ...ticketWhere, status: "RESOLVED" },
+      });
+      const closedTickets = await tx.ticket.count({
+        where: { ...ticketWhere, status: "CLOSED" },
+      });
+      const recentTickets = await tx.ticket.findMany({
         where: ticketWhere,
         include: {
           portal: { select: { name: true } },
@@ -41,8 +52,8 @@ export async function GET() {
         },
         orderBy: { createdAt: "desc" },
         take: 5,
-      }),
-      prisma.portal.findMany({
+      });
+      const portalStats = await tx.portal.findMany({
         include: {
           tickets: {
             where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
@@ -53,17 +64,28 @@ export async function GET() {
           },
         },
         orderBy: { createdAt: "desc" },
-      }),
-    ]);
-
-    const userPortalIds = new Set<string>();
-    if (!isClient) {
-      const userLinks = await prisma.portalAssignment.findMany({
-        where: { userId: session.user.id },
-        select: { portalId: true },
       });
-      userLinks.forEach((l) => userPortalIds.add(l.portalId));
-    }
+
+      const userPortalIds = new Set<string>();
+      if (!isClient) {
+        const userLinks = await tx.portalAssignment.findMany({
+          where: { userId: session.user.id },
+          select: { portalId: true },
+        });
+        userLinks.forEach((l) => userPortalIds.add(l.portalId));
+      }
+
+      return {
+        totalTickets,
+        openTickets,
+        inProgressTickets,
+        resolvedTickets,
+        closedTickets,
+        recentTickets,
+        portalStats,
+        userPortalIds,
+      };
+    });
 
     const portalsWithMeta = portalStats.map((p) => ({
       id: p.id,
